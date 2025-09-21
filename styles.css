@@ -959,6 +959,12 @@ body {
     line-height: 1.5;
 }
 
+input::placeholder,
+textarea::placeholder {
+    color: var(--text-muted);
+    opacity: 1;
+}
+
 /* KPI入力 */
 .kpi-inputs {
     display: flex;
@@ -981,7 +987,7 @@ body {
 
 .kpi-input-group input::placeholder,
 .daily-task-input-group input::placeholder {
-    color: #000000;
+    color: var(--text-muted);
     opacity: 1;
 }
 
