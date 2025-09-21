@@ -497,19 +497,24 @@ function openQuestModal(quest = null) {
     const modal = document.getElementById('questModal');
     const title = document.getElementById('questModalTitle');
     const form = document.getElementById('questForm');
-    
+    const dailyTaskContainer = document.getElementById('dailyTaskInputs');
+    const kpiContainer = document.getElementById('kpiInputs');
+
     title.textContent = quest ? 'クエストを編集' : 'クエストを追加';
-    
+
+    dailyTaskContainer.innerHTML = '';
+    kpiContainer.innerHTML = '';
+
     if (quest) {
         document.getElementById('questTitle').value = quest.title || '';
         document.getElementById('questCategory').value = quest.category || 'temptation';
-        document.getElementById('dailyTasks').value = (quest.dailyTasks || []).join('\n');
         document.getElementById('questNotes').value = quest.notes || '';
-        
-        // KPI入力欄をセット
-        const kpiContainer = document.getElementById('kpiInputs');
-        kpiContainer.innerHTML = '';
-        
+
+        const tasks = (quest.dailyTasks && quest.dailyTasks.length > 0)
+            ? quest.dailyTasks
+            : [''];
+        tasks.forEach(task => addDailyTaskInput(task));
+
         if (quest.kpis && quest.kpis.length > 0) {
             quest.kpis.forEach(kpi => {
                 addKpiInput(kpi);
@@ -519,16 +524,18 @@ function openQuestModal(quest = null) {
         }
     } else {
         form.reset();
-        document.getElementById('kpiInputs').innerHTML = '';
+        addDailyTaskInput();
         addKpiInput();
     }
-    
+
     modal.classList.add('open');
 }
 
 function closeQuestModal() {
     document.getElementById('questModal').classList.remove('open');
     document.getElementById('questForm').reset();
+    document.getElementById('kpiInputs').innerHTML = '';
+    document.getElementById('dailyTaskInputs').innerHTML = '';
     currentQuestId = null;
 }
 
@@ -561,15 +568,58 @@ function removeKpiInput(button) {
 
 window.removeKpiInput = removeKpiInput;
 
+// 毎日やること入力欄操作
+function addDailyTaskInput(task = '') {
+    const container = document.getElementById('dailyTaskInputs');
+    const div = document.createElement('div');
+    div.className = 'daily-task-input-group';
+
+    div.innerHTML = `
+        <input type="text" class="daily-task-input" placeholder="タスクを入力" value="">
+        <button type="button" class="remove-daily-task-btn" onclick="removeDailyTaskInput(this)">
+            <span class="material-icons">remove_circle</span>
+        </button>
+    `;
+
+    container.appendChild(div);
+
+    const input = div.querySelector('.daily-task-input');
+    input.value = task;
+
+    if (!task) {
+        input.focus();
+    }
+
+    updateDailyTaskRemoveButtons();
+}
+
+function removeDailyTaskInput(button) {
+    const container = document.getElementById('dailyTaskInputs');
+    if (container.children.length > 1) {
+        button.closest('.daily-task-input-group').remove();
+    }
+    updateDailyTaskRemoveButtons();
+}
+
+function updateDailyTaskRemoveButtons() {
+    const container = document.getElementById('dailyTaskInputs');
+    const shouldHide = container.children.length <= 1;
+    container.querySelectorAll('.remove-daily-task-btn').forEach(button => {
+        button.style.visibility = shouldHide ? 'hidden' : 'visible';
+    });
+}
+
+window.addDailyTaskInput = addDailyTaskInput;
+window.removeDailyTaskInput = removeDailyTaskInput;
+
 // クエスト保存
 async function handleQuestSubmit(e) {
     e.preventDefault();
-    
+
     const title = document.getElementById('questTitle').value.trim();
     const category = document.getElementById('questCategory').value;
-    const dailyTasksText = document.getElementById('dailyTasks').value.trim();
     const notes = document.getElementById('questNotes').value.trim();
-    
+
     // KPIデータ収集
     const kpis = [];
     document.querySelectorAll('.kpi-input-group').forEach(group => {
@@ -598,11 +648,10 @@ async function handleQuestSubmit(e) {
             });
         }
     });
-    
+
     // 毎日やることを配列に
-    const dailyTasks = dailyTasksText
-        .split('\n')
-        .map(task => task.trim())
+    const dailyTasks = Array.from(document.querySelectorAll('.daily-task-input'))
+        .map(input => input.value.trim())
         .filter(task => task.length > 0);
     
     const questData = {
