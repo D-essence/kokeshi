@@ -976,13 +976,13 @@ body {
 .kpi-input-group input,
 .daily-task-input-group input {
     flex: 1;
-    color: var(--text-primary);
+    color: #000000;
 }
 
 .kpi-input-group input::placeholder,
 .daily-task-input-group input::placeholder {
-    color: var(--text-secondary);
-    opacity: 0.9;
+    color: #000000;
+    opacity: 1;
 }
 
 .kpi-input-group .kpi-target {
