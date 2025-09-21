@@ -223,8 +223,12 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="dailyTasks">毎日やること（1行1タスク）</label>
-                        <textarea id="dailyTasks" rows="5" placeholder="例:&#10;腕立て伏せ20回&#10;腹筋30回&#10;ランニング5km"></textarea>
+                        <label for="dailyTaskInputs">毎日やること</label>
+                        <div id="dailyTaskInputs" class="daily-task-inputs"></div>
+                        <button type="button" class="add-daily-task-btn" onclick="addDailyTaskInput()">
+                            <span class="material-icons">add</span>
+                            タスクを追加
+                        </button>
                     </div>
 
                     <div class="form-group">
