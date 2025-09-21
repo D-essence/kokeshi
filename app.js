@@ -5,6 +5,9 @@ let currentMindId = null;
 let quests = [];
 let minds = [];
 let dailyChecks = {};
+let draggedMindItem = null;
+let mindDragContainersInitialized = false;
+let mindDragDidDrop = false;
 
 // 初期化
 document.addEventListener('DOMContentLoaded', () => {
@@ -170,16 +173,38 @@ async function loadMinds() {
             window.firebase.where('userId', '==', currentUser.uid),
             window.firebase.orderBy('createdAt', 'desc')
         );
-        
+
         const querySnapshot = await window.firebase.getDocs(q);
         minds = [];
-        
+
         querySnapshot.forEach((doc) => {
             minds.push({
                 id: doc.id,
                 ...doc.data()
             });
         });
+
+        const orderInitializationPromises = [];
+
+        minds.forEach((mind, index) => {
+            if (typeof mind.order !== 'number') {
+                mind.order = index;
+                const docRef = window.firebase.doc(window.firebase.db, 'minds', mind.id);
+                orderInitializationPromises.push(
+                    window.firebase.updateDoc(docRef, {
+                        order: index
+                    }).catch(error => {
+                        console.error('マインド順序初期化エラー:', error);
+                    })
+                );
+            }
+
+            mind.pinned = mind.pinned === true;
+        });
+
+        if (orderInitializationPromises.length > 0) {
+            await Promise.all(orderInitializationPromises);
+        }
     } catch (error) {
         console.error('マインド読み込みエラー:', error);
     }
@@ -448,40 +473,76 @@ async function updateKPI(questId, kpiIndex, delta) {
 function renderMinds() {
     const mindsList = document.getElementById('mindsList');
     const checkedList = document.getElementById('checkedMindsList');
-    
+
     mindsList.innerHTML = '';
     checkedList.innerHTML = '';
-    
-    minds.forEach(mind => {
+
+    mindsList.dataset.section = 'unchecked';
+    checkedList.dataset.section = 'checked';
+
+    const sortedMinds = [...minds].sort((a, b) => {
+        const pinnedA = a.pinned === true;
+        const pinnedB = b.pinned === true;
+
+        if (pinnedA !== pinnedB) {
+            return pinnedA ? -1 : 1;
+        }
+
+        const orderA = typeof a.order === 'number' ? a.order : Number.MAX_SAFE_INTEGER;
+        const orderB = typeof b.order === 'number' ? b.order : Number.MAX_SAFE_INTEGER;
+
+        if (orderA !== orderB) {
+            return orderA - orderB;
+        }
+
+        return 0;
+    });
+
+    sortedMinds.forEach(mind => {
         const isChecked = dailyChecks[`mind_${mind.id}`] || false;
         const mindItem = document.createElement('div');
         mindItem.className = 'mind-item';
-        
+
+        mindItem.dataset.mindId = mind.id;
+        mindItem.dataset.pinned = mind.pinned ? 'true' : 'false';
+        mindItem.dataset.section = isChecked ? 'checked' : 'unchecked';
+
+        const pinButtonLabel = mind.pinned ? 'ピン留めを解除' : 'ピン留めする';
+
         mindItem.innerHTML = `
+            <button type="button" class="mind-drag-handle" draggable="true" aria-label="ドラッグして並び替え">
+                <span class="material-icons">drag_indicator</span>
+            </button>
             <label class="mind-checkbox">
-                <input type="checkbox" ${isChecked ? 'checked' : ''} 
+                <input type="checkbox" ${isChecked ? 'checked' : ''}
                        onchange="toggleMind('${mind.id}', this.checked)">
                 <span class="checkbox-custom"></span>
                 <div class="mind-content">
+                    ${mind.pinned ? '<span class="mind-pin-indicator material-icons">push_pin</span>' : ''}
                     <div class="mind-text">${mind.text}</div>
                 </div>
             </label>
             <div class="mind-actions">
-                <button class="mind-edit-btn" onclick="editMind('${mind.id}')">
+                <button type="button" class="mind-pin-btn ${mind.pinned ? 'active' : ''}" onclick="toggleMindPin('${mind.id}')" aria-label="${pinButtonLabel}">
+                    <span class="material-icons">push_pin</span>
+                </button>
+                <button type="button" class="mind-edit-btn" onclick="editMind('${mind.id}')">
                     <span class="material-icons">edit</span>
                 </button>
-                <button class="mind-delete-btn" onclick="deleteMind('${mind.id}')">
+                <button type="button" class="mind-delete-btn" onclick="deleteMind('${mind.id}')">
                     <span class="material-icons">delete</span>
                 </button>
             </div>
         `;
-        
+
         if (isChecked) {
             checkedList.appendChild(mindItem);
         } else {
             mindsList.appendChild(mindItem);
         }
     });
+
+    setupMindDragAndDrop();
 }
 
 // マインドトグル
@@ -489,6 +550,194 @@ async function toggleMind(mindId, checked) {
     dailyChecks[`mind_${mindId}`] = checked;
     await saveDailyChecks();
     renderMinds();
+}
+
+function setupMindDragAndDrop() {
+    const handles = document.querySelectorAll('.mind-drag-handle');
+
+    handles.forEach(handle => {
+        handle.addEventListener('dragstart', handleMindDragStart);
+        handle.addEventListener('dragend', handleMindDragEnd);
+    });
+
+    if (!mindDragContainersInitialized) {
+        document.querySelectorAll('.minds-list, .checked-minds-list').forEach(container => {
+            container.addEventListener('dragover', handleMindDragOver);
+            container.addEventListener('drop', handleMindDrop);
+        });
+
+        mindDragContainersInitialized = true;
+    }
+}
+
+function handleMindDragStart(e) {
+    const item = e.target.closest('.mind-item');
+    if (!item) return;
+
+    draggedMindItem = item;
+    item.classList.add('dragging');
+
+    if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', item.dataset.mindId || '');
+    }
+}
+
+function handleMindDragEnd() {
+    if (draggedMindItem) {
+        draggedMindItem.classList.remove('dragging');
+        draggedMindItem = null;
+    }
+
+    if (!mindDragDidDrop) {
+        renderMinds();
+    }
+
+    mindDragDidDrop = false;
+}
+
+function handleMindDragOver(e) {
+    e.preventDefault();
+    if (!draggedMindItem) return;
+
+    const container = e.currentTarget;
+    if (!container || container.dataset.section !== draggedMindItem.dataset.section) {
+        if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'none';
+        }
+        return;
+    }
+
+    const afterElement = getMindDragAfterElement(container, e.clientY);
+
+    if (!afterElement) {
+        container.appendChild(draggedMindItem);
+    } else {
+        container.insertBefore(draggedMindItem, afterElement);
+    }
+}
+
+async function handleMindDrop(e) {
+    e.preventDefault();
+    if (!draggedMindItem) return;
+
+    const container = e.currentTarget;
+    if (!container || container.dataset.section !== draggedMindItem.dataset.section) {
+        return;
+    }
+
+    mindDragDidDrop = true;
+
+    try {
+        await persistMindOrder(container);
+    } catch (error) {
+        console.error('マインド並び替えエラー:', error);
+    } finally {
+        if (draggedMindItem) {
+            draggedMindItem.classList.remove('dragging');
+            draggedMindItem = null;
+        }
+        renderMinds();
+    }
+}
+
+function getMindDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.mind-item:not(.dragging)')];
+
+    return draggableElements.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+
+        if (offset < 0 && offset > closest.offset) {
+            return { offset, element: child };
+        }
+        return closest;
+    }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
+}
+
+async function persistMindOrder(container) {
+    const mindItems = [...container.querySelectorAll('.mind-item')];
+    const updates = [];
+
+    const scheduleUpdate = (item, order) => {
+        const mindId = item.dataset.mindId;
+        const mind = minds.find(m => m.id === mindId);
+
+        if (!mind || mind.order === order) return;
+
+        mind.order = order;
+
+        updates.push(
+            window.firebase.updateDoc(
+                window.firebase.doc(window.firebase.db, 'minds', mindId),
+                {
+                    order,
+                    updatedAt: window.firebase.serverTimestamp()
+                }
+            )
+        );
+    };
+
+    const pinnedItems = mindItems.filter(item => item.dataset.pinned === 'true');
+    pinnedItems.forEach((item, index) => scheduleUpdate(item, index));
+
+    const regularItems = mindItems.filter(item => item.dataset.pinned !== 'true');
+    regularItems.forEach((item, index) => scheduleUpdate(item, index));
+
+    if (updates.length > 0) {
+        await Promise.all(updates);
+    }
+}
+
+function getNextMindOrder(isPinned) {
+    const targetMinds = minds.filter(m => (m.pinned === true) === isPinned);
+    if (targetMinds.length === 0) {
+        return 0;
+    }
+
+    return targetMinds.reduce((max, mind) => {
+        const orderValue = typeof mind.order === 'number' ? mind.order : -1;
+        return Math.max(max, orderValue);
+    }, -1) + 1;
+}
+
+async function toggleMindPin(mindId) {
+    const mind = minds.find(m => m.id === mindId);
+    if (!mind) return;
+
+    const newPinned = !mind.pinned;
+    let newOrder = mind.order;
+
+    if (newPinned) {
+        const pinnedOrders = minds
+            .filter(m => m.id !== mindId && m.pinned)
+            .map(m => (typeof m.order === 'number' ? m.order : 0));
+        const minOrder = pinnedOrders.length > 0 ? Math.min(...pinnedOrders) : 0;
+        newOrder = minOrder - 1;
+    } else {
+        const regularOrders = minds
+            .filter(m => m.id !== mindId && !m.pinned)
+            .map(m => (typeof m.order === 'number' ? m.order : -1));
+        const maxOrder = regularOrders.length > 0 ? Math.max(...regularOrders) : -1;
+        newOrder = maxOrder + 1;
+    }
+
+    try {
+        await window.firebase.updateDoc(
+            window.firebase.doc(window.firebase.db, 'minds', mindId),
+            {
+                pinned: newPinned,
+                order: newOrder,
+                updatedAt: window.firebase.serverTimestamp()
+            }
+        );
+
+        mind.pinned = newPinned;
+        mind.order = newOrder;
+        renderMinds();
+    } catch (error) {
+        console.error('マインドピン更新エラー:', error);
+    }
 }
 
 // クエストモーダル操作
@@ -764,6 +1013,8 @@ async function handleMindSubmit(e) {
         } else {
             // 新規作成
             mindData.createdAt = window.firebase.serverTimestamp();
+            mindData.pinned = false;
+            mindData.order = getNextMindOrder(false);
             await window.firebase.setDoc(
                 window.firebase.doc(window.firebase.collection(window.firebase.db, 'minds')),
                 mindData
@@ -883,6 +1134,7 @@ function getDragAfterElement(container, y) {
 window.updateKPI = updateKPI;
 window.toggleDailyTask = toggleDailyTask;
 window.toggleMind = toggleMind;
+window.toggleMindPin = toggleMindPin;
 
 // 日次データリセット確認
 function checkAndResetDailyData() {
