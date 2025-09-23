@@ -9,6 +9,13 @@ let draggedMindItem = null;
 let mindDragContainersInitialized = false;
 let mindDragDidDrop = false;
 
+function getLocalDateKey(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 // 初期化
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
@@ -212,7 +219,7 @@ async function loadMinds() {
 
 // 日次チェックデータ読み込み
 async function loadDailyChecks() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateKey();
     const docRef = window.firebase.doc(window.firebase.db, 'dailyChecks', `${currentUser.uid}_${today}`);
     
     try {
@@ -230,7 +237,7 @@ async function loadDailyChecks() {
 
 // 日次データ保存
 async function saveDailyChecks() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateKey();
     const docRef = window.firebase.doc(window.firebase.db, 'dailyChecks', `${currentUser.uid}_${today}`);
     
     try {
@@ -1139,7 +1146,7 @@ window.toggleMindPin = toggleMindPin;
 // 日次データリセット確認
 function checkAndResetDailyData() {
     const lastResetDate = localStorage.getItem('lastResetDate');
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateKey();
     
     if (lastResetDate !== today) {
         // マインドのチェック状態をリセット
