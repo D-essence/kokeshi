@@ -5,14 +5,21 @@ let currentMindId = null;
 let quests = [];
 let minds = [];
 let dailyChecks = {};
+const JST_OFFSET_MINUTES = 9 * 60;
 let draggedMindItem = null;
 let mindDragContainersInitialized = false;
 let mindDragDidDrop = false;
 
+function getJstDate(date = new Date()) {
+    const utc = date.getTime() + date.getTimezoneOffset() * 60000;
+    return new Date(utc + JST_OFFSET_MINUTES * 60000);
+}
+
 function getLocalDateKey(date = new Date()) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
+    const jstDate = getJstDate(date);
+    const year = jstDate.getFullYear();
+    const month = String(jstDate.getMonth() + 1).padStart(2, '0');
+    const day = String(jstDate.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
 }
 
@@ -1144,34 +1151,41 @@ window.toggleMind = toggleMind;
 window.toggleMindPin = toggleMindPin;
 
 // 日次データリセット確認
-function checkAndResetDailyData() {
+async function checkAndResetDailyData() {
     const lastResetDate = localStorage.getItem('lastResetDate');
     const today = getLocalDateKey();
-    
-    if (lastResetDate !== today) {
-        // マインドのチェック状態をリセット
+    const needsReset = lastResetDate !== today;
+
+    if (needsReset) {
+        // マインドと毎日やることのチェック状態をリセット
         dailyChecks = {};
         localStorage.setItem('lastResetDate', today);
-        
-        // 必要に応じて他のリセット処理を追加
+
+        if (currentUser) {
+            try {
+                await loadDailyChecks();
+            } catch (error) {
+                console.error('日次データ再読み込みエラー:', error);
+            }
+
+            renderAll();
+        }
     }
-    
-    // 毎日0時にリセット
+
+    // 毎日0時（日本時間）にリセット
     scheduleNextReset();
 }
 
 function scheduleNextReset() {
     const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
-    
-    const msUntilMidnight = tomorrow - now;
-    
+    const jstNow = getJstDate(now);
+    const jstMidnight = new Date(jstNow);
+    jstMidnight.setDate(jstMidnight.getDate() + 1);
+    jstMidnight.setHours(0, 0, 0, 0);
+
+    const msUntilMidnight = jstMidnight - jstNow;
+
     setTimeout(() => {
         checkAndResetDailyData();
-        if (currentUser) {
-            renderAll();
-        }
     }, msUntilMidnight);
 }
